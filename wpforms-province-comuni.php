@@ -3,7 +3,7 @@
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
  * Description:       Popola automaticamente province e comuni italiani in WPForms con selezione condizionale via AJAX.
- * Version:           1.3.4
+ * Version:           1.3.5
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPFPC_VERSION',         '1.3.4' );
+define( 'WPFPC_VERSION',         '1.3.5' );
 define( 'WPFPC_GITHUB_USER',     'CreativeMetrics' );
 define( 'WPFPC_GITHUB_REPO',     'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL', 'https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json' );
@@ -169,27 +169,32 @@ function wpfpc_get_comuni(): void {
 
 // ── 3. Validazione server ─────────────────────────────────────────────────────
 
-add_action( 'wpforms_process', 'wpfpc_validate_comune_server', 10, 3 );
+add_filter( 'wpforms_process_before_form_data', 'wpfpc_validate_comune_server', 10, 2 );
 
-function wpfpc_validate_comune_server( array $fields, array $entry, array $form_data ): void {
+function wpfpc_validate_comune_server( array $form_data, array $entry ): array {
     $cfg = wpfpc_config_for_form( (int) $form_data['id'] );
-    if ( ! $cfg ) return;
+    if ( ! $cfg ) return $form_data;
 
     $fp        = (int) $cfg['field_prov'];
     $fc        = (int) $cfg['field_com'];
     $provincia = strtoupper( sanitize_text_field( $entry['fields'][ $fp ] ?? '' ) );
     $comune    = sanitize_text_field( $entry['fields'][ $fc ] ?? '' );
 
-    if ( empty( $provincia ) || empty( $comune ) ) return;
+    if ( empty( $provincia ) || empty( $comune ) ) return $form_data;
 
     $tutti = wpfpc_get_tutti_comuni();
-    if ( null === $tutti ) return;
+    if ( null === $tutti ) return $form_data;
 
     $validi = array_column( $tutti[ $provincia ] ?? [], 'nome' );
     if ( ! in_array( $comune, $validi, true ) ) {
-        wpforms()->get( 'process' )->errors[ $form_data['id'] ][ $fc ] =
-            'Il comune selezionato non è valido per la provincia indicata.';
+        // Metodo corretto per aggiungere errori in WPForms
+        if ( isset( wpforms()->process ) ) {
+            wpforms()->process->errors[ $form_data['id'] ][ $fc ] =
+                'Il comune selezionato non è valido per la provincia indicata.';
+        }
     }
+
+    return $form_data;
 }
 
 // ── 4. Inietta comune nella mail ──────────────────────────────────────────────
