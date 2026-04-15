@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
- * Description:       Popola automaticamente province e comuni italiani in WPForms con combobox ricercabile, CAP automatico e validazione server.
- * Version:           1.2.5
+ * Description:       Popola automaticamente province e comuni italiani in WPForms.
+ * Version:           1.2.6
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPFPC_VERSION',         '1.2.4' );
+define( 'WPFPC_VERSION',         '1.2.5' );
 define( 'WPFPC_GITHUB_USER',     'CreativeMetrics' );
 define( 'WPFPC_GITHUB_REPO',     'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL', 'https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json' );
@@ -77,7 +77,11 @@ function wpfpc_get_tutti_comuni(): ?array {
     return $per_provincia;
 }
 
-// ── 1. Popola province ────────────────────────────────────────────────────────
+// ── 1. Popola province via PHP ────────────────────────────────────────────────
+// Soluzione Viterbo: usiamo il placeholder NATIVO di WPForms.
+// Quando 'placeholder' è valorizzato, WPForms aggiunge automaticamente
+// un'opzione vuota in cima e non pre-seleziona nessuna scelta.
+// Nessun JS necessario per il default.
 
 add_filter( 'wpforms_frontend_form_data', 'wpfpc_popola_province' );
 
@@ -127,9 +131,9 @@ function wpfpc_popola_province( array $form_data ): array {
 
     asort( $province );
 
+    // Chiavi intere da 1, NESSUNA scelta con default = '1'
     $choices = [];
     $idx     = 1;
-    $choices[ $idx++ ] = [ 'label' => '— Seleziona provincia —', 'value' => '', 'default' => '1' ];
     foreach ( $province as $sigla => $nome ) {
         $choices[ $idx++ ] = [ 'label' => $nome . ' (' . $sigla . ')', 'value' => $sigla, 'default' => '' ];
     }
@@ -137,7 +141,8 @@ function wpfpc_popola_province( array $form_data ): array {
     $fp = (int) $cfg['field_prov'];
     $fc = (int) $cfg['field_com'];
 
-    $form_data['fields'][ $fp ]['placeholder']   = '';
+    // Placeholder nativo WPForms: aggiunge opzione vuota in cima senza JS
+    $form_data['fields'][ $fp ]['placeholder']   = '— Seleziona provincia —';
     $form_data['fields'][ $fp ]['show_values']   = '1';
     $form_data['fields'][ $fp ]['choices']       = $choices;
     $form_data['fields'][ $fp ]['default_value'] = '';
@@ -147,7 +152,31 @@ function wpfpc_popola_province( array $form_data ): array {
     return $form_data;
 }
 
-// ── 2. AJAX comuni ────────────────────────────────────────────────────────────
+// ── 2. Nascondi comuni e CAP via CSS nel <head> ───────────────────────────────
+// Nascondere via CSS dal <head> è infallibile: avviene PRIMA del render
+// del DOM, quindi i campi non appaiono mai visibili all'utente.
+// Il JS li mostra solo quando serve.
+
+add_action( 'wp_head', 'wpfpc_hide_fields_css' );
+
+function wpfpc_hide_fields_css(): void {
+    $configs = wpfpc_get_configs();
+    if ( empty( $configs ) ) return;
+
+    $selectors = [];
+    foreach ( $configs as $cfg ) {
+        $selectors[] = '.wpforms-field[data-field-id="' . (int) $cfg['field_com'] . '"]';
+        if ( ! empty( $cfg['field_cap'] ) ) {
+            $selectors[] = '.wpforms-field[data-field-id="' . (int) $cfg['field_cap'] . '"]';
+        }
+    }
+
+    if ( empty( $selectors ) ) return;
+
+    echo '<style>' . implode( ', ', $selectors ) . ' { display: none !important; }</style>' . "\n";
+}
+
+// ── 3. AJAX comuni ────────────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_wpfpc_get_comuni',        'wpfpc_get_comuni' );
 add_action( 'wp_ajax_nopriv_wpfpc_get_comuni', 'wpfpc_get_comuni' );
@@ -161,13 +190,13 @@ function wpfpc_get_comuni(): void {
     if ( empty( $provincia ) ) wp_send_json_error( 'Provincia mancante' );
 
     $tutti = wpfpc_get_tutti_comuni();
-    if ( null === $tutti )              wp_send_json_error( 'Impossibile scaricare i dati.' );
+    if ( null === $tutti )               wp_send_json_error( 'Impossibile scaricare i dati.' );
     if ( empty( $tutti[ $provincia ] ) ) wp_send_json_error( 'Nessun comune per: ' . $provincia );
 
     wp_send_json_success( $tutti[ $provincia ] );
 }
 
-// ── 3. Validazione server ─────────────────────────────────────────────────────
+// ── 4. Validazione server ─────────────────────────────────────────────────────
 
 add_action( 'wpforms_process', 'wpfpc_validate_comune_server', 10, 3 );
 
@@ -192,7 +221,7 @@ function wpfpc_validate_comune_server( array $fields, array $entry, array $form_
     }
 }
 
-// ── 4. Inietta comune nella mail ──────────────────────────────────────────────
+// ── 5. Inietta comune nella mail ──────────────────────────────────────────────
 
 add_filter( 'wpforms_process_filter', 'wpfpc_inject_comune_value', 10, 3 );
 
@@ -202,14 +231,15 @@ function wpfpc_inject_comune_value( array $fields, array $entry, array $form_dat
 
     $fc     = (int) $cfg['field_com'];
     $comune = sanitize_text_field( $entry['fields'][ $fc ] ?? '' );
-
     if ( ! empty( $comune ) && isset( $fields[ $fc ] ) ) {
         $fields[ $fc ]['value'] = $comune;
     }
     return $fields;
 }
 
-// ── 5. Frontend JS ────────────────────────────────────────────────────────────
+// ── 6. Frontend JS ────────────────────────────────────────────────────────────
+// Select nativi — nessun combobox custom, nessuna manipolazione del DOM.
+// Semplice: cambio provincia → AJAX → popola select comuni → mostra campo.
 
 add_action( 'wp_footer', 'wpfpc_inline_script' );
 
@@ -226,29 +256,6 @@ function wpfpc_inline_script(): void {
         'fieldCap'  => (int) ( $c['field_cap'] ?? 0 ),
     ], $configs ) );
     ?>
-    <style>
-    .wpfpc-combo { position: relative; }
-    .wpfpc-combo-input {
-        width: 100%; padding: 8px 32px 8px 10px; border: 1px solid #8c8f94;
-        border-radius: 4px; font-size: 14px; box-sizing: border-box; background: #fff;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23555' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
-        background-repeat: no-repeat; background-position: right 10px center; cursor: pointer;
-    }
-    .wpfpc-combo-input:focus { outline: 2px solid #2271b1; border-color: #2271b1; cursor: text; }
-    .wpfpc-combo-input:disabled { opacity: .5; cursor: default; }
-    .wpfpc-combo-dropdown {
-        display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 99999;
-        background: #fff; border: 1px solid #8c8f94; border-top: none;
-        border-radius: 0 0 4px 4px; max-height: 220px; overflow-y: auto;
-        box-shadow: 0 4px 10px rgba(0,0,0,.15);
-    }
-    .wpfpc-combo-dropdown.wpfpc-open { display: block; }
-    .wpfpc-combo-option { padding: 8px 12px; cursor: pointer; font-size: 14px; }
-    .wpfpc-combo-option:hover { background: #f0f5fb; }
-    .wpfpc-combo-option.wpfpc-active { font-weight: 600; color: #2271b1; background: #f0f5fb; }
-    .wpfpc-combo-empty { padding: 10px 12px; color: #888; font-size: 13px; font-style: italic; }
-    </style>
-
     <script>
     (function ($) {
         'use strict';
@@ -259,178 +266,63 @@ function wpfpc_inline_script(): void {
 
         function initForm(cfg) {
 
-            // ── Selettori ─────────────────────────────────────────────────
-            var $prov     = $('#wpforms-' + cfg.formId + '-field-' + cfg.fieldProv);
-            var $comWrap  = $('.wpforms-field[data-field-id="' + cfg.fieldCom + '"]');
-            var $capWrap  = cfg.fieldCap ? $('.wpforms-field[data-field-id="' + cfg.fieldCap + '"]') : null;
-            var $comNative = $('select[name="wpforms[fields][' + cfg.fieldCom + ']"]');
-            var $capInput  = cfg.fieldCap ? $('[name="wpforms[fields][' + cfg.fieldCap + ']"]') : null;
+            var $prov    = $('select[name="wpforms[fields][' + cfg.fieldProv + ']"]');
+            var $com     = $('select[name="wpforms[fields][' + cfg.fieldCom  + ']"]');
+            var $cap     = cfg.fieldCap ? $('[name="wpforms[fields][' + cfg.fieldCap + ']"]') : null;
+            var comWrap  = '.wpforms-field[data-field-id="' + cfg.fieldCom + '"]';
+            var capWrap  = cfg.fieldCap ? '.wpforms-field[data-field-id="' + cfg.fieldCap + '"]' : null;
 
-            // Il form non è in questa pagina
-            if ( !$prov.length || !$comWrap.length ) return;
-
-            // ── Stato ──────────────────────────────────────────────────────
-            var allComuni  = [];   // [{ nome, cap }] — tutti i comuni della provincia
-            var selected   = null; // { nome, cap } — comune selezionato
-
-            // ── Costruzione combobox ───────────────────────────────────────
-            // Nasconde il <select> nativo (gestisce la submission) e inserisce
-            // dopo di esso un input + dropdown personalizzato.
-            $comNative.hide();
-
-            var $wrap  = $('<div class="wpfpc-combo">').insertAfter( $comNative );
-            var $input = $('<input>', {
-                type: 'text', class: 'wpfpc-combo-input',
-                placeholder: '— Seleziona comune —', autocomplete: 'off'
-            }).appendTo( $wrap );
-            var $drop = $('<div class="wpfpc-combo-dropdown">').appendTo( $wrap );
-
-            // ── Funzioni dropdown ─────────────────────────────────────────
-
-            function renderDropdown(query) {
-                $drop.empty();
-                var q = (query || '').toLowerCase().trim();
-                var lista = q
-                    ? allComuni.filter(function(c) { return c.nome.toLowerCase().indexOf(q) !== -1; })
-                    : allComuni;
-
-                if (!lista.length) {
-                    $drop.append('<div class="wpfpc-combo-empty">Nessun risultato</div>');
-                    return;
-                }
-
-                $.each(lista, function(i, item) {
-                    var isSelected = selected && selected.nome === item.nome;
-                    $('<div>', {
-                        class: 'wpfpc-combo-option' + (isSelected ? ' wpfpc-active' : ''),
-                        text: item.nome
-                    })
-                    .data('item', item)
-                    .on('mousedown', function(e) {
-                        e.preventDefault(); // evita blur sull'input prima della selezione
-                        scegli( $(this).data('item') );
-                    })
-                    .appendTo($drop);
-                });
-            }
-
-            function apri() {
-                renderDropdown( $input.val() );
-                $drop.addClass('wpfpc-open');
-            }
-
-            function chiudi() {
-                $drop.removeClass('wpfpc-open');
-                // Ripristina il testo se l'utente ha digitato senza scegliere
-                $input.val( selected ? selected.nome : '' );
-            }
-
-            function scegli(item) {
-                selected = item;
-                $input.val(item.nome);
-
-                // Aggiorna il <select> nativo per la submission del form
-                if ( !$comNative.find('option[value="' + item.nome.replace(/"/g,'&quot;') + '"]').length ) {
-                    $comNative.append( $('<option>', { value: item.nome, text: item.nome }) );
-                }
-                $comNative.val(item.nome);
-
-                // CAP automatico
-                if ($capInput) $capInput.val(item.cap || '');
-
-                chiudi();
-            }
-
-            function resetCombo(placeholder, disabilitato) {
-                selected   = null;
-                allComuni  = [];
-                $comNative.val('').find('option:not(:first)').remove();
-                $input.val('').prop({ placeholder: placeholder, disabled: !!disabilitato });
-                $drop.removeClass('wpfpc-open').empty();
-                if ($capInput) $capInput.val('');
-            }
-
-            // ── Visibilità ────────────────────────────────────────────────
+            if ( !$prov.length || !$com.length ) return;
 
             function nascondi() {
-                $comWrap.hide();
-                if ($capWrap) $capWrap.hide();
-                resetCombo('— Seleziona prima una provincia —', false);
+                $(comWrap).hide();
+                if (capWrap) $(capWrap).hide();
+                $com.html('<option value="">— Seleziona prima una provincia —</option>');
+                if ($cap) $cap.val('');
             }
 
-            function mostra() {
-                $comWrap.show();
-            }
-
-            // ── AJAX ──────────────────────────────────────────────────────
-
-            function caricaComuni(provincia) {
-                resetCombo('⏳ Caricamento...', true);
+            function caricaComuni(sigla) {
+                $com.html('<option value="">⏳ Caricamento...</option>');
 
                 $.ajax({
                     url: AJAX_URL, method: 'GET', dataType: 'json',
-                    data: { action: 'wpfpc_get_comuni', nonce: NONCE, provincia: provincia },
+                    data: { action: 'wpfpc_get_comuni', nonce: NONCE, provincia: sigla },
                     success: function(resp) {
-                        $input.prop('disabled', false);
                         if (!resp.success) {
-                            resetCombo('⚠️ Errore caricamento', false);
+                            $com.html('<option value="">⚠️ Errore caricamento</option>');
                             return;
                         }
-                        allComuni = resp.data; // [{ nome, cap }]
-                        $input.prop('placeholder', '— Seleziona o cerca comune —');
+                        var html = '<option value="">— Seleziona comune —</option>';
+                        $.each(resp.data, function(i, item) {
+                            html += '<option value="' + item.nome + '" data-cap="' + (item.cap || '') + '">'
+                                 + item.nome + '</option>';
+                        });
+                        $com.html(html);
+                        $(comWrap).show();
                     },
                     error: function(xhr) {
-                        $input.prop('disabled', false);
-                        resetCombo('⚠️ Errore (' + xhr.status + ')', false);
+                        $com.html('<option value="">⚠️ Errore (' + xhr.status + ')</option>');
                     }
                 });
             }
 
-            // ── Eventi input/dropdown ─────────────────────────────────────
-
-            $input.on('focus click', function() {
-                if (allComuni.length) apri();
-            });
-
-            $input.on('input', function() {
-                if (allComuni.length) apri();
-            });
-
-            $input.on('keydown', function(e) {
-                // Blocca sempre invio dentro il campo ricerca
-                if (e.key === 'Enter' || e.keyCode === 13) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    var $vis = $drop.find('.wpfpc-combo-option:visible');
-                    if ($vis.length === 1) scegli( $vis.data('item') );
-                    return false;
-                }
-                if (e.key === 'Escape') chiudi();
-            });
-
-            $input.on('blur', function() {
-                setTimeout(chiudi, 200);
-            });
-
-            $(document).on('click', function(e) {
-                if (!$wrap.is(e.target) && !$wrap.has(e.target).length) chiudi();
-            });
-
-            // ── Evento cambio provincia ───────────────────────────────────
-
+            // Cambio provincia
             $prov.on('change', function() {
-                var val = $(this).val();
-                if (val) { mostra(); caricaComuni(val); }
-                else     { nascondi(); }
+                var sigla = $(this).val();
+                if (sigla) {
+                    caricaComuni(sigla);
+                } else {
+                    nascondi();
+                }
             });
 
-            // ── Init: aspetta che WPForms finisca di inizializzare ────────
-            // WPForms esegue il suo JS dopo il nostro (footer), quindi
-            // usiamo un timeout per essere sicuri di intervenire per ultimi.
-            setTimeout(function() {
-                $prov[0].selectedIndex = 0;
-                nascondi();
-            }, 50);
+            // Cambio comune → CAP automatico
+            $com.on('change', function() {
+                if (!$cap) return;
+                var cap = $(this).find('option:selected').data('cap') || '';
+                $cap.val(cap);
+                if (capWrap) cap ? $(capWrap).show() : $(capWrap).hide();
+            });
         }
 
         $(document).ready(function() {
