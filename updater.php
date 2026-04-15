@@ -1,6 +1,9 @@
 <?php
 /**
  * Aggiornamento automatico da GitHub Releases.
+ * Usa esclusivamente il filtro standard di WordPress — non chiama mai
+ * get_site_transient() o set_site_transient() per evitare di innescare
+ * i filtri di altri plugin (Yoast, Duplicator, ecc.) e crash di memoria.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -27,10 +30,19 @@ class WPFPC_GitHub_Updater {
         add_filter( 'upgrader_source_selection',             [ $this, 'fix_directory_name' ], 10, 4 );
     }
 
+    /**
+     * Recupera i dati dell'ultima release da GitHub.
+     * Cache propria (transient wpfpc_github_release) — non tocca update_plugins.
+     */
     private function get_release_data(): ?array {
         $cache_key = 'wpfpc_github_release';
         $cached    = get_transient( $cache_key );
-        if ( $cached !== false ) return $cached ?: null;
+
+        // get_transient restituisce false se non esiste, array vuoto [] se la chiamata
+        // precedente è fallita (lo usiamo come "negative cache")
+        if ( $cached !== false ) {
+            return ! empty( $cached ) ? $cached : null;
+        }
 
         $response = wp_remote_get( $this->api_url, [
             'timeout' => 10,
@@ -41,11 +53,12 @@ class WPFPC_GitHub_Updater {
         ] );
 
         if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
-            set_transient( $cache_key, [], HOUR_IN_SECONDS );
+            set_transient( $cache_key, [], HOUR_IN_SECONDS ); // negative cache 1h
             return null;
         }
 
         $data = json_decode( wp_remote_retrieve_body( $response ), true );
+
         if ( empty( $data['tag_name'] ) ) {
             set_transient( $cache_key, [], HOUR_IN_SECONDS );
             return null;
@@ -55,13 +68,8 @@ class WPFPC_GitHub_Updater {
         return $data;
     }
 
-    /**
-     * Costruisce l'oggetto update da iniettare nel transient di WordPress.
-     */
-    private function build_update_object( array $release ): object {
-        $latest  = ltrim( $release['tag_name'], 'vV' );
+    private function build_update_object( array $release, string $latest ): object {
         $zip_url = $release['zipball_url'];
-
         foreach ( $release['assets'] ?? [] as $asset ) {
             if ( str_ends_with( $asset['name'], '.zip' ) ) {
                 $zip_url = $asset['browser_download_url'];
@@ -79,13 +87,17 @@ class WPFPC_GitHub_Updater {
         ];
     }
 
+    /**
+     * Aggancia il controllo al filtro standard di WordPress.
+     * NON chiama mai get_site_transient / set_site_transient.
+     */
     public function check_update( $transient ) {
-        // Assicuriamoci che il nostro plugin sia nell'array checked
-        if ( isset( $transient->checked ) && ! isset( $transient->checked[ $this->slug ] ) ) {
+        if ( empty( $transient->checked ) ) return $transient;
+
+        // Assicura che il nostro plugin sia nell'array checked
+        if ( ! isset( $transient->checked[ $this->slug ] ) ) {
             $transient->checked[ $this->slug ] = $this->current_version;
         }
-
-        if ( empty( $transient->checked ) ) return $transient;
 
         $release = $this->get_release_data();
         if ( ! $release ) return $transient;
@@ -93,7 +105,7 @@ class WPFPC_GitHub_Updater {
         $latest = ltrim( $release['tag_name'], 'vV' );
 
         if ( version_compare( $latest, $this->current_version, '>' ) ) {
-            $transient->response[ $this->slug ] = $this->build_update_object( $release );
+            $transient->response[ $this->slug ] = $this->build_update_object( $release, $latest );
         } else {
             unset( $transient->response[ $this->slug ] );
         }
@@ -108,17 +120,19 @@ class WPFPC_GitHub_Updater {
         $release = $this->get_release_data();
         if ( ! $release ) return $result;
 
+        $latest = ltrim( $release['tag_name'], 'vV' );
+
         return (object) [
-            'name'         => 'WPForms – Province e Comuni Italiani',
-            'slug'         => dirname( $this->slug ),
-            'version'      => ltrim( $release['tag_name'], 'vV' ),
-            'author'       => '<a href="https://github.com/' . $this->github_user . '">CreativeMetrics</a>',
-            'homepage'     => "https://github.com/{$this->github_user}/{$this->github_repo}",
-            'requires'     => '6.0',
-            'tested'       => get_bloginfo( 'version' ),
-            'last_updated' => $release['published_at'] ?? '',
-            'sections'     => [
-                'description' => 'Popola automaticamente province e comuni italiani in WPForms con aggiornamento condizionale via AJAX.',
+            'name'          => 'WPForms – Province e Comuni Italiani',
+            'slug'          => dirname( $this->slug ),
+            'version'       => $latest,
+            'author'        => '<a href="https://github.com/' . $this->github_user . '">CreativeMetrics</a>',
+            'homepage'      => "https://github.com/{$this->github_user}/{$this->github_repo}",
+            'requires'      => '6.0',
+            'tested'        => get_bloginfo( 'version' ),
+            'last_updated'  => $release['published_at'] ?? '',
+            'sections'      => [
+                'description' => 'Popola automaticamente province e comuni italiani in WPForms con combobox ricercabile, CAP automatico e validazione server.',
                 'changelog'   => nl2br( esc_html( $release['body'] ?? 'Vedi le release su GitHub.' ) ),
             ],
             'download_link' => $release['zipball_url'],
@@ -128,14 +142,14 @@ class WPFPC_GitHub_Updater {
     public function fix_directory_name( $source, $remote_source, $upgrader, $hook_extra ) {
         if ( ! isset( $hook_extra['plugin'] ) || $hook_extra['plugin'] !== $this->slug ) return $source;
 
-        $correct_name = dirname( $this->slug );
-        $new_source   = trailingslashit( $remote_source ) . $correct_name . '/';
+        $correct = dirname( $this->slug );
+        $new     = trailingslashit( $remote_source ) . $correct . '/';
 
-        if ( $source !== $new_source ) {
+        if ( $source !== $new ) {
             global $wp_filesystem;
-            $wp_filesystem->move( $source, $new_source );
+            $wp_filesystem->move( $source, $new );
         }
 
-        return $new_source;
+        return $new;
     }
 }
