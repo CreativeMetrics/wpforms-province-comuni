@@ -28,6 +28,10 @@ class WPFPC_GitHub_Updater {
         add_filter( 'pre_set_site_transient_update_plugins', [ $this, 'check_update' ] );
         add_filter( 'plugins_api',                           [ $this, 'plugin_info' ], 10, 3 );
         add_filter( 'upgrader_source_selection',             [ $this, 'fix_directory_name' ], 10, 4 );
+
+        // Dice a WordPress di includere questo plugin nel controllo
+        // periodico degli aggiornamenti (ogni 12h) senza toccare transient
+        add_filter( 'site_transient_update_plugins', [ $this, 'force_check_entry' ] );
     }
 
     /**
@@ -91,10 +95,29 @@ class WPFPC_GitHub_Updater {
      * Aggancia il controllo al filtro standard di WordPress.
      * NON chiama mai get_site_transient / set_site_transient.
      */
+    /**
+     * Aggiunge il nostro plugin all'array 'checked' ogni volta che
+     * WordPress legge il transient update_plugins — così siamo sempre
+     * inclusi nel ciclo di controllo automatico senza toccare il transient.
+     */
+    public function force_check_entry( $transient ) {
+        if ( ! is_object( $transient ) ) return $transient;
+
+        if ( ! isset( $transient->checked ) ) {
+            $transient->checked = [];
+        }
+
+        // Registra la versione corrente — WordPress userà questo valore
+        // per capire se c'è un aggiornamento disponibile
+        $transient->checked[ $this->slug ] = $this->current_version;
+
+        return $transient;
+    }
+
     public function check_update( $transient ) {
         if ( empty( $transient->checked ) ) return $transient;
 
-        // Assicura che il nostro plugin sia nell'array checked
+        // Il plugin è già nell'array grazie a force_check_entry
         if ( ! isset( $transient->checked[ $this->slug ] ) ) {
             $transient->checked[ $this->slug ] = $this->current_version;
         }
