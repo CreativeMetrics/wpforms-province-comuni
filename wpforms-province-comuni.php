@@ -3,7 +3,7 @@
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
  * Description:       Popola automaticamente province e comuni italiani in WPForms con selezione condizionale via AJAX.
- * Version:           1.3.2
+ * Version:           1.3.3
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPFPC_VERSION',         '1.3.2' );
+define( 'WPFPC_VERSION',         '1.3.3' );
 define( 'WPFPC_GITHUB_USER',     'CreativeMetrics' );
 define( 'WPFPC_GITHUB_REPO',     'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL', 'https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json' );
@@ -364,6 +364,10 @@ function wpfpc_inline_script(): void {
             }
 
             function caricaComuni(sigla) {
+                // Distrugge Select2 prima di modificare il select
+                if ($.fn.select2 && $(selCom).hasClass('select2-hidden-accessible')) {
+                    $(selCom).select2('destroy');
+                }
                 $(selCom).html('<option value="">⏳ Caricamento...</option>')
                          .attr('style', CSS_DIS);
 
