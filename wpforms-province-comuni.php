@@ -3,7 +3,7 @@
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
  * Description:       Popola automaticamente province e comuni italiani in WPForms con combobox ricercabile, CAP automatico e validazione server.
- * Version:           1.2.3
+ * Version:           1.2.3.1
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
