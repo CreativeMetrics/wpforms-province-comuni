@@ -46,7 +46,6 @@ class WPFPC_GitHub_Updater {
         }
 
         $data = json_decode( wp_remote_retrieve_body( $response ), true );
-
         if ( empty( $data['tag_name'] ) ) {
             set_transient( $cache_key, [], HOUR_IN_SECONDS );
             return null;
@@ -62,6 +61,7 @@ class WPFPC_GitHub_Updater {
         $release = $this->get_release_data();
         if ( ! $release ) return $transient;
 
+        // ltrim gestisce sia 'v1.2.0' che 'V1.2.0'
         $latest = ltrim( $release['tag_name'], 'vV' );
 
         if ( version_compare( $latest, $this->current_version, '>' ) ) {
