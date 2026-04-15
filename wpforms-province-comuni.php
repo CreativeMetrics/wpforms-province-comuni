@@ -3,7 +3,7 @@
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
  * Description:       Popola automaticamente province e comuni italiani in WPForms con ricerca live, CAP automatico e validazione server.
- * Version:           1.2.0
+ * Version:           1.2.3
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -14,7 +14,7 @@
 defined( 'ABSPATH' ) || exit;
 
 // ─── COSTANTI ────────────────────────────────────────────────────────────────
-define( 'WPFPC_VERSION',       '1.2.0' );
+define( 'WPFPC_VERSION',       '1.2.3' );
 define( 'WPFPC_GITHUB_USER',   'CreativeMetrics' );
 define( 'WPFPC_GITHUB_REPO',   'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL',
@@ -288,6 +288,33 @@ function wpfpc_inline_script(): void {
         var CSS_DISABLED = 'opacity:0.5; pointer-events:none;';
         var CSS_ENABLED  = 'opacity:1;   pointer-events:auto;';
 
+        // ── Stili combobox ────────────────────────────────────────────────
+        var comboCSS = [
+            '.wpfpc-combobox { position:relative; width:100%; }',
+            '.wpfpc-combobox-input {',
+            '  width:100%; padding:8px 32px 8px 10px; border:1px solid #8c8f94;',
+            '  border-radius:4px; font-size:14px; box-sizing:border-box;',
+            '  background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23555' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 10px center;',
+            '  cursor:pointer;',
+            '}',
+            '.wpfpc-combobox-input:focus { outline:2px solid #2271b1; border-color:#2271b1; cursor:text; }',
+            '.wpfpc-combobox-list {',
+            '  display:none; position:absolute; top:100%; left:0; right:0; z-index:9999;',
+            '  background:#fff; border:1px solid #8c8f94; border-top:none;',
+            '  border-radius:0 0 4px 4px; max-height:220px; overflow-y:auto;',
+            '  box-shadow:0 4px 8px rgba(0,0,0,.12);',
+            '}',
+            '.wpfpc-combobox-list.open { display:block; }',
+            '.wpfpc-combobox-item {',
+            '  padding:8px 12px; cursor:pointer; font-size:14px;',
+            '}',
+            '.wpfpc-combobox-item:hover, .wpfpc-combobox-item.highlighted { background:#f0f5fb; }',
+            '.wpfpc-combobox-item.selected { font-weight:600; color:#2271b1; }',
+            '.wpfpc-combobox-empty { padding:10px 12px; color:#888; font-size:13px; font-style:italic; }',
+        ].join('');
+
+        $('<style>').text(comboCSS).appendTo('head');
+
         function initForm(cfg) {
             var selProv       = '[name="wpforms[fields][' + cfg.fieldProv + ']"]';
             var selCom        = '[name="wpforms[fields][' + cfg.fieldCom  + ']"]';
@@ -295,63 +322,144 @@ function wpfpc_inline_script(): void {
             var selComWrapper = '.wpforms-field[data-field-id="' + cfg.fieldCom + '"]';
             var selCapWrapper = cfg.fieldCap ? '.wpforms-field[data-field-id="' + cfg.fieldCap + '"]' : null;
 
-            var $searchInput = null; // campo ricerca live (creato dinamicamente)
-
             if ( ! $(selProv).length ) return;
 
-            // ── Ricerca live ──────────────────────────────────────────────
-            function insertSearchInput() {
-                if ( $searchInput ) $searchInput.remove();
+            // Dati comuni in memoria per il combobox
+            var comuniData  = []; // array di { nome, cap }
+            var selectedCom = null;
 
-                var $comWrapper = $(selComWrapper);
-                if ( ! $comWrapper.length ) return;
+            // ── Costruisce il combobox custom ─────────────────────────────
+            // Il <select> nativo rimane nascosto per gestire la submission del form.
+            // Il combobox è puramente presentazionale.
+            var $nativeSelect = $(selCom);
+            var $comboWrap, $comboInput, $comboList;
 
-                $searchInput = $('<input>', {
+            function buildCombobox() {
+                if ( $comboWrap ) $comboWrap.remove();
+
+                $comboWrap  = $('<div class="wpfpc-combobox">');
+                $comboInput = $('<input>', {
                     type:        'text',
-                    placeholder: '🔍 Cerca comune...',
-                    css: {
-                        width:        '100%',
-                        marginBottom: '6px',
-                        padding:      '6px 10px',
-                        border:       '1px solid #ccc',
-                        borderRadius: '4px',
-                        boxSizing:    'border-box',
-                        fontSize:     '14px',
-                    }
+                    class:       'wpfpc-combobox-input',
+                    placeholder: '— Seleziona comune —',
+                    autocomplete:'off',
+                    readonly:    true,
+                });
+                $comboList = $('<div class="wpfpc-combobox-list">');
+
+                $comboWrap.append($comboInput, $comboList);
+                $nativeSelect.hide().after($comboWrap);
+
+                // Apre la lista al click
+                $comboInput.on('click focus', function () {
+                    $comboInput.prop('readonly', false);
+                    renderList('');
+                    $comboList.addClass('open');
+                    $comboInput.select();
                 });
 
-                // Inserisce il campo prima del <select>
-                $comWrapper.find('select').before( $searchInput );
-
-                $searchInput.on('input', function () {
-                    var query = $(this).val().toLowerCase().trim();
-                    $(selCom).find('option').each(function () {
-                        var $opt = $(this);
-                        if ( $opt.val() === '' ) return; // non nascondere il placeholder
-                        $opt.toggle( $opt.text().toLowerCase().indexOf(query) > -1 );
-                    });
+                // Filtra mentre si digita
+                $comboInput.on('input', function () {
+                    renderList( $(this).val() );
+                    $comboList.addClass('open');
                 });
 
-                // Blocca l'invio del form quando si preme Invio nel campo ricerca
-                $searchInput.on('keydown', function (e) {
+                // Blocca submit su Invio
+                $comboInput.on('keydown', function (e) {
                     if (e.key === 'Enter' || e.keyCode === 13) {
                         e.preventDefault();
                         e.stopPropagation();
+                        // Se c'è un solo elemento visibile, selezionalo
+                        var $visible = $comboList.find('.wpfpc-combobox-item:visible');
+                        if ($visible.length === 1) $visible.trigger('click');
                         return false;
+                    }
+                    if (e.key === 'Escape') {
+                        closeList();
+                    }
+                });
+
+                // Chiudi cliccando fuori
+                $(document).on('click.wpfpc', function (e) {
+                    if (!$comboWrap.is(e.target) && $comboWrap.has(e.target).length === 0) {
+                        closeList();
                     }
                 });
             }
 
-            // ── Reset comuni ──────────────────────────────────────────────
-            function resetComuni(msg) {
-                $(selCom).html('<option value="">' + msg + '</option>').attr('style', CSS_DISABLED);
-                if ($searchInput) { $searchInput.val('').hide(); }
+            function renderList(query) {
+                $comboList.empty();
+                var q = query.toLowerCase().trim();
+                var filtered = q
+                    ? comuniData.filter(function(c){ return c.nome.toLowerCase().indexOf(q) > -1; })
+                    : comuniData;
+
+                if (!filtered.length) {
+                    $comboList.append('<div class="wpfpc-combobox-empty">Nessun comune trovato</div>');
+                    return;
+                }
+
+                $.each(filtered, function(i, item) {
+                    var $item = $('<div>', {
+                        class: 'wpfpc-combobox-item' + (selectedCom && selectedCom.nome === item.nome ? ' selected' : ''),
+                        text:  item.nome,
+                    });
+                    $item.on('click', function () {
+                        selectComune(item);
+                    });
+                    $comboList.append($item);
+                });
             }
 
+            function selectComune(item) {
+                selectedCom = item;
+                $comboInput.val(item.nome).prop('readonly', true);
+                // Aggiorna il <select> nativo (usato per la submission del form)
+                $nativeSelect.val(item.nome);
+                if (!$nativeSelect.find('option[value="' + item.nome + '"]').length) {
+                    $nativeSelect.append($('<option>', { value: item.nome, 'data-cap': item.cap || '', text: item.nome }));
+                }
+                $nativeSelect.val(item.nome).trigger('change');
+                closeList();
+                aggiornaCAP(item);
+            }
+
+            function closeList() {
+                $comboList.removeClass('open');
+                // Se il testo non corrisponde a una scelta valida, ripristina
+                if (selectedCom && $comboInput.val() !== selectedCom.nome) {
+                    $comboInput.val(selectedCom.nome);
+                } else if (!selectedCom) {
+                    $comboInput.val('');
+                }
+                $comboInput.prop('readonly', true);
+            }
+
+            function resetCombobox(placeholder) {
+                selectedCom = null;
+                comuniData  = [];
+                if ($comboInput) {
+                    $comboInput.val('').prop('placeholder', placeholder).prop('readonly', true);
+                }
+                if ($comboList) $comboList.empty().removeClass('open');
+                $nativeSelect.val('').html('<option value=""></option>');
+            }
+
+            // ── CAP automatico ────────────────────────────────────────────
+            function aggiornaCAP(item) {
+                if (!selCap) return;
+                var cap = item ? (item.cap || '') : '';
+                $(selCap).val(cap);
+                if (selCapWrapper) {
+                    cap ? $(selCapWrapper).show() : $(selCapWrapper).hide();
+                }
+            }
+
+            // ── Visibilità campo comuni ───────────────────────────────────
             function nascondiComuni() {
                 $(selComWrapper).hide();
                 if (selCapWrapper) $(selCapWrapper).hide();
-                resetComuni('— Seleziona prima una provincia —');
+                resetCombobox('— Seleziona prima una provincia —');
             }
 
             function mostraComuni() {
@@ -360,7 +468,8 @@ function wpfpc_inline_script(): void {
 
             // ── Carica comuni via AJAX ────────────────────────────────────
             function caricaComuni(provincia) {
-                resetComuni('⏳ Caricamento comuni...');
+                resetCombobox('⏳ Caricamento...');
+                if ($comboInput) $comboInput.prop('disabled', true);
 
                 $.ajax({
                     url:      AJAX_URL,
@@ -368,72 +477,30 @@ function wpfpc_inline_script(): void {
                     dataType: 'json',
                     data: { action: 'wpfpc_get_comuni', nonce: NONCE, provincia: provincia },
                     success: function (response) {
+                        if ($comboInput) $comboInput.prop('disabled', false);
                         if (!response.success) {
-                            resetComuni('⚠️ ' + response.data);
+                            resetCombobox('⚠️ Errore caricamento');
                             return;
                         }
-
-                        var $sel = $(selCom);
-                        $sel.html('<option value="">— Seleziona comune —</option>');
-
-                        // response.data è array di { nome, cap }
-                        $.each(response.data, function (i, item) {
-                            $sel.append(
-                                $('<option>', {
-                                    value:        item.nome,
-                                    text:         item.nome,
-                                    'data-cap':   item.cap || '',
-                                })
-                            );
-                        });
-
-                        $sel.attr('style', CSS_ENABLED);
-
-                        // Mostra campo ricerca solo se ci sono abbastanza comuni
-                        if (response.data.length > 15) {
-                            insertSearchInput();
-                            if ($searchInput) $searchInput.val('').show();
-                        }
+                        comuniData = response.data; // [{ nome, cap }]
+                        resetCombobox('— Seleziona comune —');
                     },
                     error: function (xhr) {
-                        resetComuni('⚠️ Errore (' + xhr.status + '), riprova');
+                        if ($comboInput) $comboInput.prop('disabled', false);
+                        resetCombobox('⚠️ Errore (' + xhr.status + ')');
                     }
                 });
             }
 
-            // ── Popola CAP automaticamente ────────────────────────────────
-            function aggiornaCAP() {
-                if (!selCap) return;
-
-                var $selCom = $(selCom);
-                var cap = $selCom.find('option:selected').data('cap') || '';
-
-                $(selCap).val(cap);
-
-                // Mostra/nasconde il campo CAP
-                if (selCapWrapper) {
-                    cap ? $(selCapWrapper).show() : $(selCapWrapper).hide();
-                }
-            }
-
             // ── Inizializzazione ──────────────────────────────────────────
             $(selProv)[0].selectedIndex = 0;
+            buildCombobox();
             nascondiComuni();
 
-            // Cambio provincia
             $(document).on('change', selProv, function () {
                 var val = $(this).val();
-                if (val) {
-                    mostraComuni();
-                    caricaComuni(val);
-                } else {
-                    nascondiComuni();
-                }
-            });
-
-            // Cambio comune → aggiorna CAP
-            $(document).on('change', selCom, function () {
-                aggiornaCAP();
+                if (val) { mostraComuni(); caricaComuni(val); }
+                else     { nascondiComuni(); }
             });
         }
 

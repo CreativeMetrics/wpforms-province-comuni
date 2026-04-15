@@ -55,37 +55,57 @@ class WPFPC_GitHub_Updater {
         return $data;
     }
 
-    public function check_update( $transient ) {
-        if ( empty( $transient->checked ) ) return $transient;
+    /**
+     * Costruisce l'oggetto update da iniettare nel transient di WordPress.
+     */
+    private function build_update_object( array $release ): object {
+        $latest  = ltrim( $release['tag_name'], 'vV' );
+        $zip_url = $release['zipball_url'];
 
-        // Se WordPress non ha ancora registrato il nostro plugin nell'array
-        // dei check, lo aggiungiamo manualmente con la versione corrente
-        if ( ! isset( $transient->checked[ $this->slug ] ) ) {
+        foreach ( $release['assets'] ?? [] as $asset ) {
+            if ( str_ends_with( $asset['name'], '.zip' ) ) {
+                $zip_url = $asset['browser_download_url'];
+                break;
+            }
+        }
+
+        return (object) [
+            'slug'        => dirname( $this->slug ),
+            'plugin'      => $this->slug,
+            'new_version' => $latest,
+            'url'         => "https://github.com/{$this->github_user}/{$this->github_repo}",
+            'package'     => $zip_url,
+            'tested'      => get_bloginfo( 'version' ),
+        ];
+    }
+
+    public function check_update( $transient ) {
+        // Assicuriamoci che il nostro plugin sia nell'array checked
+        if ( isset( $transient->checked ) && ! isset( $transient->checked[ $this->slug ] ) ) {
             $transient->checked[ $this->slug ] = $this->current_version;
         }
+
+        if ( empty( $transient->checked ) ) return $transient;
 
         $release = $this->get_release_data();
         if ( ! $release ) return $transient;
 
-        // ltrim gestisce sia 'v1.2.0' che 'V1.2.0'
         $latest = ltrim( $release['tag_name'], 'vV' );
 
         if ( version_compare( $latest, $this->current_version, '>' ) ) {
-            $zip_url = $release['zipball_url'];
-            foreach ( $release['assets'] ?? [] as $asset ) {
-                if ( str_ends_with( $asset['name'], '.zip' ) ) {
-                    $zip_url = $asset['browser_download_url'];
-                    break;
-                }
+            $update = $this->build_update_object( $release );
+            $transient->response[ $this->slug ] = $update;
+
+            // Inietta direttamente anche nel site transient persistente
+            // così WordPress lo vede subito senza aspettare il prossimo ciclo
+            $stored = get_site_transient( 'update_plugins' );
+            if ( $stored && is_object( $stored ) ) {
+                $stored->response[ $this->slug ] = $update;
+                set_site_transient( 'update_plugins', $stored );
             }
-            $transient->response[ $this->slug ] = (object) [
-                'slug'        => dirname( $this->slug ),
-                'plugin'      => $this->slug,
-                'new_version' => $latest,
-                'url'         => "https://github.com/{$this->github_user}/{$this->github_repo}",
-                'package'     => $zip_url,
-                'tested'      => get_bloginfo( 'version' ),
-            ];
+        } else {
+            // Nessun aggiornamento: rimuovi eventuali entry stale
+            unset( $transient->response[ $this->slug ] );
         }
 
         return $transient;
