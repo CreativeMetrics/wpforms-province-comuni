@@ -3,7 +3,7 @@
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
  * Description:       Popola automaticamente province e comuni italiani in WPForms con selezione condizionale via AJAX.
- * Version:           1.2.8
+ * Version:           1.2.9
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPFPC_VERSION',         '1.1.2' );
+define( 'WPFPC_VERSION',         '1.2.9' );
 define( 'WPFPC_GITHUB_USER',     'CreativeMetrics' );
 define( 'WPFPC_GITHUB_REPO',     'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL', 'https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json' );
@@ -231,6 +231,81 @@ function wpfpc_enqueue_select2(): void {
         '4.1.0',
         true
     );
+}
+
+add_action( 'wp_head', 'wpfpc_select2_style' );
+
+function wpfpc_select2_style(): void {
+    $configs = wpfpc_get_configs();
+    if ( empty( $configs ) ) return;
+    ?>
+    <style>
+    /* Select2: eredita l'aspetto dai campi WPForms nativi */
+
+    /* Contenitore principale — uguale al select WPForms */
+    .wpforms-field .select2-container { width: 100% !important; }
+    .wpforms-field .select2-container--default .select2-selection--single {
+        height: auto;
+        padding: 0;
+        border: inherit;
+        border-radius: inherit;
+        background: inherit;
+        box-shadow: none;
+        font-size: inherit;
+        font-family: inherit;
+        color: inherit;
+    }
+
+    /* Testo selezionato — stessa altezza e padding del select WPForms */
+    .wpforms-field .select2-container--default .select2-selection--single .select2-selection__rendered {
+        line-height: inherit;
+        padding-left: 0;
+        padding-right: 24px;
+        color: inherit;
+        font-size: inherit;
+    }
+
+    /* Freccia — posizionata a destra come il select nativo */
+    .wpforms-field .select2-container--default .select2-selection--single .select2-selection__arrow {
+        height: 100%;
+        top: 0;
+        right: 4px;
+    }
+
+    /* Dropdown aperto — segue il bordo del tema */
+    .wpforms-field .select2-container--default .select2-dropdown {
+        border-color: inherit;
+        border-radius: inherit;
+        font-size: inherit;
+        font-family: inherit;
+        z-index: 99999;
+    }
+
+    /* Campo di ricerca nel dropdown */
+    .wpforms-field .select2-container--default .select2-search--dropdown .select2-search__field {
+        border-color: inherit;
+        border-radius: inherit;
+        font-size: inherit;
+        font-family: inherit;
+        padding: 6px 8px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Opzioni nella lista */
+    .wpforms-field .select2-container--default .select2-results__option {
+        font-size: inherit;
+        font-family: inherit;
+        padding: 6px 10px;
+    }
+
+    /* Opzione evidenziata */
+    .wpforms-field .select2-container--default .select2-results__option--highlighted[aria-selected] {
+        background-color: #2271b1;
+        color: #fff;
+    }
+    </style>
+    <?php
 }
 
 add_action( 'wp_footer', 'wpfpc_inline_script' );
