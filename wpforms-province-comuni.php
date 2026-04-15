@@ -3,7 +3,7 @@
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
  * Description:       Popola automaticamente province e comuni italiani in WPForms con selezione condizionale via AJAX.
- * Version:           1.2.7
+ * Version:           1.2.8
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPFPC_VERSION',         '1.1.1' );
+define( 'WPFPC_VERSION',         '1.1.2' );
 define( 'WPFPC_GITHUB_USER',     'CreativeMetrics' );
 define( 'WPFPC_GITHUB_REPO',     'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL', 'https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json' );
@@ -210,6 +210,29 @@ function wpfpc_inject_comune_value( array $fields, array $entry, array $form_dat
 
 // ── 5. Frontend JS ────────────────────────────────────────────────────────────
 
+add_action( 'wp_enqueue_scripts', 'wpfpc_enqueue_select2' );
+
+function wpfpc_enqueue_select2(): void {
+    $configs = wpfpc_get_configs();
+    if ( empty( $configs ) ) return;
+
+    // Select2 — libreria jQuery matura per dropdown ricercabili
+    // CDN jsDelivr, nessuna dipendenza aggiuntiva
+    wp_enqueue_style(
+        'select2',
+        'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css',
+        [],
+        '4.1.0'
+    );
+    wp_enqueue_script(
+        'select2',
+        'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js',
+        [ 'jquery' ],
+        '4.1.0',
+        true
+    );
+}
+
 add_action( 'wp_footer', 'wpfpc_inline_script' );
 
 function wpfpc_inline_script(): void {
@@ -249,6 +272,10 @@ function wpfpc_inline_script(): void {
             function nascondi() {
                 $(wrapCom).hide();
                 if (wrapCap) $(wrapCap).hide();
+                // Distrugge Select2 prima di modificare il select nativo
+                if ($.fn.select2 && $(selCom).hasClass('select2-hidden-accessible')) {
+                    $(selCom).select2('destroy');
+                }
                 $(selCom).html('<option value="">— Seleziona prima una provincia —</option>')
                          .attr('style', CSS_DIS);
                 if (selCap) $(selCap).val('');
@@ -273,6 +300,21 @@ function wpfpc_inline_script(): void {
                         });
                         $(selCom).html(html).attr('style', CSS_ENA);
                         $(wrapCom).show();
+
+                        // Inizializza Select2 sul campo comuni
+                        // per aggiungere la ricerca integrata nel dropdown
+                        if ($.fn.select2) {
+                            $(selCom).select2({
+                                placeholder: '— Seleziona comune —',
+                                allowClear:  false,
+                                width:       '100%',
+                                language: {
+                                    noResults:    function() { return 'Nessun comune trovato'; },
+                                    searching:    function() { return 'Ricerca in corso...'; },
+                                    inputTooShort: function() { return 'Digita per cercare'; }
+                                }
+                            });
+                        }
                     },
                     error: function(xhr) {
                         $(selCom).html('<option value="">⚠️ Errore (' + xhr.status + ')</option>');
