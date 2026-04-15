@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
- * Description:       Popola automaticamente province e comuni italiani in WPForms.
- * Version:           1.2.6
+ * Description:       Popola automaticamente province e comuni italiani in WPForms con selezione condizionale via AJAX.
+ * Version:           1.2.7
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPFPC_VERSION',         '1.2.5' );
+define( 'WPFPC_VERSION',         '1.1.1' );
 define( 'WPFPC_GITHUB_USER',     'CreativeMetrics' );
 define( 'WPFPC_GITHUB_REPO',     'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL', 'https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json' );
@@ -77,11 +77,7 @@ function wpfpc_get_tutti_comuni(): ?array {
     return $per_provincia;
 }
 
-// ── 1. Popola province via PHP ────────────────────────────────────────────────
-// Soluzione Viterbo: usiamo il placeholder NATIVO di WPForms.
-// Quando 'placeholder' è valorizzato, WPForms aggiunge automaticamente
-// un'opzione vuota in cima e non pre-seleziona nessuna scelta.
-// Nessun JS necessario per il default.
+// ── 1. Popola province ────────────────────────────────────────────────────────
 
 add_filter( 'wpforms_frontend_form_data', 'wpfpc_popola_province' );
 
@@ -131,9 +127,9 @@ function wpfpc_popola_province( array $form_data ): array {
 
     asort( $province );
 
-    // Chiavi intere da 1, NESSUNA scelta con default = '1'
     $choices = [];
     $idx     = 1;
+    $choices[ $idx++ ] = [ 'label' => '— Seleziona provincia —', 'value' => '', 'default' => '1' ];
     foreach ( $province as $sigla => $nome ) {
         $choices[ $idx++ ] = [ 'label' => $nome . ' (' . $sigla . ')', 'value' => $sigla, 'default' => '' ];
     }
@@ -141,8 +137,7 @@ function wpfpc_popola_province( array $form_data ): array {
     $fp = (int) $cfg['field_prov'];
     $fc = (int) $cfg['field_com'];
 
-    // Placeholder nativo WPForms: aggiunge opzione vuota in cima senza JS
-    $form_data['fields'][ $fp ]['placeholder']   = '— Seleziona provincia —';
+    $form_data['fields'][ $fp ]['placeholder']   = '';
     $form_data['fields'][ $fp ]['show_values']   = '1';
     $form_data['fields'][ $fp ]['choices']       = $choices;
     $form_data['fields'][ $fp ]['default_value'] = '';
@@ -152,31 +147,7 @@ function wpfpc_popola_province( array $form_data ): array {
     return $form_data;
 }
 
-// ── 2. Nascondi comuni e CAP via CSS nel <head> ───────────────────────────────
-// Nascondere via CSS dal <head> è infallibile: avviene PRIMA del render
-// del DOM, quindi i campi non appaiono mai visibili all'utente.
-// Il JS li mostra solo quando serve.
-
-add_action( 'wp_head', 'wpfpc_hide_fields_css' );
-
-function wpfpc_hide_fields_css(): void {
-    $configs = wpfpc_get_configs();
-    if ( empty( $configs ) ) return;
-
-    $selectors = [];
-    foreach ( $configs as $cfg ) {
-        $selectors[] = '.wpforms-field[data-field-id="' . (int) $cfg['field_com'] . '"]';
-        if ( ! empty( $cfg['field_cap'] ) ) {
-            $selectors[] = '.wpforms-field[data-field-id="' . (int) $cfg['field_cap'] . '"]';
-        }
-    }
-
-    if ( empty( $selectors ) ) return;
-
-    echo '<style>' . implode( ', ', $selectors ) . ' { display: none !important; }</style>' . "\n";
-}
-
-// ── 3. AJAX comuni ────────────────────────────────────────────────────────────
+// ── 2. AJAX comuni ────────────────────────────────────────────────────────────
 
 add_action( 'wp_ajax_wpfpc_get_comuni',        'wpfpc_get_comuni' );
 add_action( 'wp_ajax_nopriv_wpfpc_get_comuni', 'wpfpc_get_comuni' );
@@ -196,7 +167,7 @@ function wpfpc_get_comuni(): void {
     wp_send_json_success( $tutti[ $provincia ] );
 }
 
-// ── 4. Validazione server ─────────────────────────────────────────────────────
+// ── 3. Validazione server ─────────────────────────────────────────────────────
 
 add_action( 'wpforms_process', 'wpfpc_validate_comune_server', 10, 3 );
 
@@ -221,7 +192,7 @@ function wpfpc_validate_comune_server( array $fields, array $entry, array $form_
     }
 }
 
-// ── 5. Inietta comune nella mail ──────────────────────────────────────────────
+// ── 4. Inietta comune nella mail ──────────────────────────────────────────────
 
 add_filter( 'wpforms_process_filter', 'wpfpc_inject_comune_value', 10, 3 );
 
@@ -237,9 +208,7 @@ function wpfpc_inject_comune_value( array $fields, array $entry, array $form_dat
     return $fields;
 }
 
-// ── 6. Frontend JS ────────────────────────────────────────────────────────────
-// Select nativi — nessun combobox custom, nessuna manipolazione del DOM.
-// Semplice: cambio provincia → AJAX → popola select comuni → mostra campo.
+// ── 5. Frontend JS ────────────────────────────────────────────────────────────
 
 add_action( 'wp_footer', 'wpfpc_inline_script' );
 
@@ -264,50 +233,55 @@ function wpfpc_inline_script(): void {
         var NONCE    = '<?php echo $nonce; ?>';
         var CONFIGS  = <?php echo wp_json_encode( $js_configs ); ?>;
 
+        var CSS_DIS = 'opacity:0.5; pointer-events:none;';
+        var CSS_ENA = 'opacity:1;   pointer-events:auto;';
+
         function initForm(cfg) {
 
-            var $prov    = $('select[name="wpforms[fields][' + cfg.fieldProv + ']"]');
-            var $com     = $('select[name="wpforms[fields][' + cfg.fieldCom  + ']"]');
-            var $cap     = cfg.fieldCap ? $('[name="wpforms[fields][' + cfg.fieldCap + ']"]') : null;
-            var comWrap  = '.wpforms-field[data-field-id="' + cfg.fieldCom + '"]';
-            var capWrap  = cfg.fieldCap ? '.wpforms-field[data-field-id="' + cfg.fieldCap + '"]' : null;
+            var selProv   = '[name="wpforms[fields][' + cfg.fieldProv + ']"]';
+            var selCom    = '[name="wpforms[fields][' + cfg.fieldCom  + ']"]';
+            var selCap    = cfg.fieldCap ? '[name="wpforms[fields][' + cfg.fieldCap + ']"]' : null;
+            var wrapCom   = '.wpforms-field[data-field-id="' + cfg.fieldCom + '"]';
+            var wrapCap   = cfg.fieldCap ? '.wpforms-field[data-field-id="' + cfg.fieldCap + '"]' : null;
 
-            if ( !$prov.length || !$com.length ) return;
+            if ( !$(selProv).length ) return;
 
             function nascondi() {
-                $(comWrap).hide();
-                if (capWrap) $(capWrap).hide();
-                $com.html('<option value="">— Seleziona prima una provincia —</option>');
-                if ($cap) $cap.val('');
+                $(wrapCom).hide();
+                if (wrapCap) $(wrapCap).hide();
+                $(selCom).html('<option value="">— Seleziona prima una provincia —</option>')
+                         .attr('style', CSS_DIS);
+                if (selCap) $(selCap).val('');
             }
 
             function caricaComuni(sigla) {
-                $com.html('<option value="">⏳ Caricamento...</option>');
+                $(selCom).html('<option value="">⏳ Caricamento...</option>')
+                         .attr('style', CSS_DIS);
 
                 $.ajax({
                     url: AJAX_URL, method: 'GET', dataType: 'json',
                     data: { action: 'wpfpc_get_comuni', nonce: NONCE, provincia: sigla },
                     success: function(resp) {
                         if (!resp.success) {
-                            $com.html('<option value="">⚠️ Errore caricamento</option>');
+                            $(selCom).html('<option value="">⚠️ Errore caricamento</option>');
                             return;
                         }
                         var html = '<option value="">— Seleziona comune —</option>';
                         $.each(resp.data, function(i, item) {
                             html += '<option value="' + item.nome + '" data-cap="' + (item.cap || '') + '">'
-                                 + item.nome + '</option>';
+                                  + item.nome + '</option>';
                         });
-                        $com.html(html);
-                        $(comWrap).show();
+                        $(selCom).html(html).attr('style', CSS_ENA);
+                        $(wrapCom).show();
                     },
                     error: function(xhr) {
-                        $com.html('<option value="">⚠️ Errore (' + xhr.status + ')</option>');
+                        $(selCom).html('<option value="">⚠️ Errore (' + xhr.status + ')</option>');
                     }
                 });
             }
 
             // Cambio provincia
-            $prov.on('change', function() {
+            $(document).on('change', selProv, function() {
                 var sigla = $(this).val();
                 if (sigla) {
                     caricaComuni(sigla);
@@ -317,12 +291,16 @@ function wpfpc_inline_script(): void {
             });
 
             // Cambio comune → CAP automatico
-            $com.on('change', function() {
-                if (!$cap) return;
+            $(document).on('change', selCom, function() {
+                if (!selCap) return;
                 var cap = $(this).find('option:selected').data('cap') || '';
-                $cap.val(cap);
-                if (capWrap) cap ? $(capWrap).show() : $(capWrap).hide();
+                $(selCap).val(cap);
+                if (wrapCap) cap ? $(wrapCap).show() : $(wrapCap).hide();
             });
+
+            // Inizializzazione
+            $(selProv)[0].selectedIndex = 0;
+            nascondi();
         }
 
         $(document).ready(function() {
