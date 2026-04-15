@@ -82,11 +82,18 @@ class WPFPC_Admin {
 
         $action = sanitize_key( $_GET['wpfpc_action'] );
 
-        $msg = match( $action ) {
-            'reset_comuni' => ( delete_transient( 'wpfpc_tutti_comuni_v3' ) ? 'cache_comuni_ok' : 'cache_comuni_ok' ),
-            'reset_github' => ( delete_transient( 'wpfpc_github_release'  ) ? 'cache_github_ok' : 'cache_github_ok' ),
-            default        => 'unknown',
-        };
+        if ( $action === 'reset_comuni' ) {
+            delete_transient( 'wpfpc_tutti_comuni_v3' );
+            $msg = 'cache_comuni_ok';
+        } elseif ( $action === 'reset_github' ) {
+            // Svuota sia la nostra cache che il transient interno di WordPress
+            delete_transient( 'wpfpc_github_release' );
+            delete_site_transient( 'update_plugins' );
+            wp_update_plugins(); // forza il ricalcolo immediato
+            $msg = 'cache_github_ok';
+        } else {
+            $msg = 'unknown';
+        }
 
         wp_redirect( add_query_arg( [ 'page' => 'wpfpc-settings', 'tool' => $msg ], admin_url( 'admin.php' ) ) );
         exit;

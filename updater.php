@@ -58,6 +58,12 @@ class WPFPC_GitHub_Updater {
     public function check_update( $transient ) {
         if ( empty( $transient->checked ) ) return $transient;
 
+        // Se WordPress non ha ancora registrato il nostro plugin nell'array
+        // dei check, lo aggiungiamo manualmente con la versione corrente
+        if ( ! isset( $transient->checked[ $this->slug ] ) ) {
+            $transient->checked[ $this->slug ] = $this->current_version;
+        }
+
         $release = $this->get_release_data();
         if ( ! $release ) return $transient;
 
