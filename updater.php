@@ -93,18 +93,8 @@ class WPFPC_GitHub_Updater {
         $latest = ltrim( $release['tag_name'], 'vV' );
 
         if ( version_compare( $latest, $this->current_version, '>' ) ) {
-            $update = $this->build_update_object( $release );
-            $transient->response[ $this->slug ] = $update;
-
-            // Inietta direttamente anche nel site transient persistente
-            // così WordPress lo vede subito senza aspettare il prossimo ciclo
-            $stored = get_site_transient( 'update_plugins' );
-            if ( $stored && is_object( $stored ) ) {
-                $stored->response[ $this->slug ] = $update;
-                set_site_transient( 'update_plugins', $stored );
-            }
+            $transient->response[ $this->slug ] = $this->build_update_object( $release );
         } else {
-            // Nessun aggiornamento: rimuovi eventuali entry stale
             unset( $transient->response[ $this->slug ] );
         }
 
