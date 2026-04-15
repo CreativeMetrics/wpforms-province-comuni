@@ -331,6 +331,15 @@ function wpfpc_inline_script(): void {
                         $opt.toggle( $opt.text().toLowerCase().indexOf(query) > -1 );
                     });
                 });
+
+                // Blocca l'invio del form quando si preme Invio nel campo ricerca
+                $searchInput.on('keydown', function (e) {
+                    if (e.key === 'Enter' || e.keyCode === 13) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return false;
+                    }
+                });
             }
 
             // ── Reset comuni ──────────────────────────────────────────────
