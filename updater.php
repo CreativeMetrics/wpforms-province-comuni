@@ -62,7 +62,7 @@ class WPFPC_GitHub_Updater {
         $release = $this->get_release_data();
         if ( ! $release ) return $transient;
 
-        $latest = ltrim( $release['tag_name'], 'v' );
+        $latest = ltrim( $release['tag_name'], 'vV' );
 
         if ( version_compare( $latest, $this->current_version, '>' ) ) {
             $zip_url = $release['zipball_url'];
@@ -95,7 +95,7 @@ class WPFPC_GitHub_Updater {
         return (object) [
             'name'         => 'WPForms – Province e Comuni Italiani',
             'slug'         => dirname( $this->slug ),
-            'version'      => ltrim( $release['tag_name'], 'v' ),
+            'version'      => ltrim( $release['tag_name'], 'vV' ),
             'author'       => '<a href="https://github.com/' . $this->github_user . '">CreativeMetrics</a>',
             'homepage'     => "https://github.com/{$this->github_user}/{$this->github_repo}",
             'requires'     => '6.0',
