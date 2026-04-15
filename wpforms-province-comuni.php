@@ -3,7 +3,7 @@
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
  * Description:       Popola automaticamente province e comuni italiani in WPForms con selezione condizionale via AJAX.
- * Version:           1.3.6
+ * Version:           1.3.7
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPFPC_VERSION',         '1.3.6' );
+define( 'WPFPC_VERSION',         '1.3.7' );
 define( 'WPFPC_GITHUB_USER',     'CreativeMetrics' );
 define( 'WPFPC_GITHUB_REPO',     'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL', 'https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json' );
@@ -171,20 +171,7 @@ function wpfpc_get_comuni(): void {
 // (disabilitata temporaneamente — da reimplementare con hook corretto)
 
 // ── 4. Inietta comune nella mail ──────────────────────────────────────────────
-
-add_filter( 'wpforms_process_filter', 'wpfpc_inject_comune_value', 10, 3 );
-
-function wpfpc_inject_comune_value( array $fields, array $entry, array $form_data ): array {
-    $cfg = wpfpc_config_for_form( (int) $form_data['id'] );
-    if ( ! $cfg ) return $fields;
-
-    $fc     = (int) $cfg['field_com'];
-    $comune = sanitize_text_field( $entry['fields'][ $fc ] ?? '' );
-    if ( ! empty( $comune ) && isset( $fields[ $fc ] ) ) {
-        $fields[ $fc ]['value'] = $comune;
-    }
-    return $fields;
-}
+// (rimosso temporaneamente per isolare l'errore di submit)
 
 // ── 5. Frontend JS ────────────────────────────────────────────────────────────
 
