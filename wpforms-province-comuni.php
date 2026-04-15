@@ -3,7 +3,7 @@
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
  * Description:       Popola automaticamente province e comuni italiani in WPForms con selezione condizionale via AJAX.
- * Version:           1.2.9
+ * Version:           1.3.0
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPFPC_VERSION',         '1.2.9' );
+define( 'WPFPC_VERSION',         '1.3.0' );
 define( 'WPFPC_GITHUB_USER',     'CreativeMetrics' );
 define( 'WPFPC_GITHUB_REPO',     'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL', 'https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json' );
@@ -246,23 +246,28 @@ function wpfpc_select2_style(): void {
     .wpforms-field .select2-container { width: 100% !important; }
     .wpforms-field .select2-container--default .select2-selection--single {
         height: auto;
+        min-height: 0;
         padding: 0;
-        border: inherit;
+        border: 1px solid #ccc;
         border-radius: inherit;
         background: inherit;
         box-shadow: none;
         font-size: inherit;
         font-family: inherit;
         color: inherit;
+        display: flex;
+        align-items: center;
     }
 
-    /* Testo selezionato — stessa altezza e padding del select WPForms */
+    /* Testo selezionato — centrato verticalmente, stesso padding del select WPForms */
     .wpforms-field .select2-container--default .select2-selection--single .select2-selection__rendered {
-        line-height: inherit;
-        padding-left: 0;
-        padding-right: 24px;
+        line-height: normal;
+        padding: 0 24px 0 0;
         color: inherit;
         font-size: inherit;
+        display: flex;
+        align-items: center;
+        width: 100%;
     }
 
     /* Freccia — posizionata a destra come il select nativo */
