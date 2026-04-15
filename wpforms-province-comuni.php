@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
- * Description:       Popola automaticamente province e comuni italiani in WPForms con selezione condizionale via AJAX. Dati ISTAT ufficiali.
- * Version:           1.0.5
+ * Description:       Popola automaticamente province e comuni italiani in WPForms con selezione condizionale via AJAX. Configurabile da WPForms → Province & Comuni.
+ * Version:           1.1.0
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -14,12 +14,9 @@
 defined( 'ABSPATH' ) || exit;
 
 // ─── COSTANTI ────────────────────────────────────────────────────────────────
-define( 'WPFPC_VERSION',         '1.0.5' );
-define( 'WPFPC_FORM_ID',          2458 );
-define( 'WPFPC_FIELD_PROV',         14 );
-define( 'WPFPC_FIELD_COM',          15 );
-define( 'WPFPC_GITHUB_USER',  'CreativeMetrics' );
-define( 'WPFPC_GITHUB_REPO',  'wpforms-province-comuni' );
+define( 'WPFPC_VERSION',        '1.1.0' );
+define( 'WPFPC_GITHUB_USER',    'CreativeMetrics' );
+define( 'WPFPC_GITHUB_REPO',    'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL',
     'https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json'
 );
@@ -27,17 +24,36 @@ define( 'WPFPC_COMUNI_CACHE_KEY', 'wpfpc_tutti_comuni_v2' );
 // ─────────────────────────────────────────────────────────────────────────────
 
 
-// ─── AGGIORNAMENTI AUTOMATICI DA GITHUB ──────────────────────────────────────
+// ─── CARICA MODULI ───────────────────────────────────────────────────────────
 require_once __DIR__ . '/updater.php';
+require_once __DIR__ . '/admin.php';
 
-add_action( 'init', function () {
-    new WPFPC_GitHub_Updater(
-        __FILE__,
-        WPFPC_GITHUB_USER,
-        WPFPC_GITHUB_REPO,
-        WPFPC_VERSION
-    );
+add_action( 'init', function (): void {
+    new WPFPC_GitHub_Updater( __FILE__, WPFPC_GITHUB_USER, WPFPC_GITHUB_REPO, WPFPC_VERSION );
 } );
+
+new WPFPC_Admin();
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// ─── HELPER: lista form configurati ──────────────────────────────────────────
+
+function wpfpc_get_configs(): array {
+    return WPFPC_Admin::get_configs();
+}
+
+/**
+ * Trova la configurazione per il form corrente.
+ * Restituisce [ 'form_id', 'field_prov', 'field_com', 'label' ] o null.
+ */
+function wpfpc_config_for_form( int $form_id ): ?array {
+    foreach ( wpfpc_get_configs() as $cfg ) {
+        if ( (int) $cfg['form_id'] === $form_id ) {
+            return $cfg;
+        }
+    }
+    return null;
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -48,9 +64,7 @@ add_action( 'init', function () {
 function wpfpc_get_tutti_comuni(): ?array {
 
     $cached = get_transient( WPFPC_COMUNI_CACHE_KEY );
-    if ( $cached !== false ) {
-        return $cached;
-    }
+    if ( $cached !== false ) return $cached;
 
     $response = wp_remote_get( WPFPC_COMUNI_JSON_URL, [
         'timeout'    => 20,
@@ -62,43 +76,38 @@ function wpfpc_get_tutti_comuni(): ?array {
     }
 
     $data = json_decode( wp_remote_retrieve_body( $response ), true );
-
-    if ( ! is_array( $data ) || empty( $data ) ) {
-        return null;
-    }
+    if ( ! is_array( $data ) || empty( $data ) ) return null;
 
     $per_provincia = [];
-
     foreach ( $data as $comune ) {
-        $nome  = trim( $comune['nome'] ?? '' );
+        $nome  = trim( $comune['nome']  ?? '' );
         $sigla = strtoupper( trim( $comune['sigla'] ?? '' ) );
         if ( $nome && $sigla ) {
             $per_provincia[ $sigla ][] = $nome;
         }
     }
 
-    foreach ( $per_provincia as &$nomi ) {
-        sort( $nomi );
-    }
+    foreach ( $per_provincia as &$nomi ) sort( $nomi );
     unset( $nomi );
 
     set_transient( WPFPC_COMUNI_CACHE_KEY, $per_provincia, 365 * DAY_IN_SECONDS );
-
     return $per_provincia;
 }
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 1. POPOLA LE PROVINCE
+// 1. POPOLA LE PROVINCE per ogni form configurato
 // ═══════════════════════════════════════════════════════════════════════════
 
 add_filter( 'wpforms_frontend_form_data', 'wpfpc_popola_province' );
 
 function wpfpc_popola_province( array $form_data ): array {
 
-    if ( (int) $form_data['id'] !== WPFPC_FORM_ID ) {
-        return $form_data;
-    }
+    $cfg = wpfpc_config_for_form( (int) $form_data['id'] );
+    if ( ! $cfg ) return $form_data;
+
+    $field_prov = (int) $cfg['field_prov'];
+    $field_com  = (int) $cfg['field_com'];
 
     $province = [
         'AG' => 'Agrigento',           'AL' => 'Alessandria',         'AN' => 'Ancona',
@@ -144,18 +153,17 @@ function wpfpc_popola_province( array $form_data ): array {
     $choices = [];
     $idx     = 1;
     $choices[ $idx++ ] = [ 'label' => '— Seleziona provincia —', 'value' => '', 'default' => '1' ];
-
     foreach ( $province as $sigla => $nome ) {
         $choices[ $idx++ ] = [ 'label' => $nome . ' (' . $sigla . ')', 'value' => $sigla, 'default' => '' ];
     }
 
-    $form_data['fields'][ WPFPC_FIELD_PROV ]['placeholder']   = '';
-    $form_data['fields'][ WPFPC_FIELD_PROV ]['show_values']   = '1';
-    $form_data['fields'][ WPFPC_FIELD_PROV ]['choices']       = $choices;
-    $form_data['fields'][ WPFPC_FIELD_PROV ]['default_value'] = '';
+    $form_data['fields'][ $field_prov ]['placeholder']   = '';
+    $form_data['fields'][ $field_prov ]['show_values']   = '1';
+    $form_data['fields'][ $field_prov ]['choices']       = $choices;
+    $form_data['fields'][ $field_prov ]['default_value'] = '';
 
-    $form_data['fields'][ WPFPC_FIELD_COM ]['conditional_logic'] = '0';
-    $form_data['fields'][ WPFPC_FIELD_COM ]['conditionals']      = [];
+    $form_data['fields'][ $field_com ]['conditional_logic'] = '0';
+    $form_data['fields'][ $field_com ]['conditionals']      = [];
 
     return $form_data;
 }
@@ -169,16 +177,16 @@ add_filter( 'wpforms_process_filter', 'wpfpc_inject_comune_value', 10, 3 );
 
 function wpfpc_inject_comune_value( array $fields, array $entry, array $form_data ): array {
 
-    if ( (int) $form_data['id'] !== WPFPC_FORM_ID ) {
-        return $fields;
-    }
+    $cfg = wpfpc_config_for_form( (int) $form_data['id'] );
+    if ( ! $cfg ) return $fields;
 
-    $comune = isset( $entry['fields'][ WPFPC_FIELD_COM ] )
-        ? sanitize_text_field( $entry['fields'][ WPFPC_FIELD_COM ] )
+    $field_com = (int) $cfg['field_com'];
+    $comune    = isset( $entry['fields'][ $field_com ] )
+        ? sanitize_text_field( $entry['fields'][ $field_com ] )
         : '';
 
-    if ( ! empty( $comune ) && isset( $fields[ WPFPC_FIELD_COM ] ) ) {
-        $fields[ WPFPC_FIELD_COM ]['value'] = $comune;
+    if ( ! empty( $comune ) && isset( $fields[ $field_com ] ) ) {
+        $fields[ $field_com ]['value'] = $comune;
     }
 
     return $fields;
@@ -197,150 +205,106 @@ function wpfpc_get_comuni(): void {
     check_ajax_referer( 'wpfpc_nonce', 'nonce' );
 
     $provincia = isset( $_GET['provincia'] ) ? strtoupper( sanitize_text_field( $_GET['provincia'] ) ) : '';
-
-    if ( empty( $provincia ) ) {
-        wp_send_json_error( 'Provincia mancante' );
-    }
+    if ( empty( $provincia ) ) wp_send_json_error( 'Provincia mancante' );
 
     $tutti = wpfpc_get_tutti_comuni();
-
-    if ( null === $tutti ) {
-        wp_send_json_error( 'Impossibile scaricare i dati dei comuni.' );
-    }
-
-    if ( empty( $tutti[ $provincia ] ) ) {
-        wp_send_json_error( 'Nessun comune trovato per: ' . $provincia );
-    }
+    if ( null === $tutti )            wp_send_json_error( 'Impossibile scaricare i dati dei comuni.' );
+    if ( empty( $tutti[$provincia] ) ) wp_send_json_error( 'Nessun comune trovato per: ' . $provincia );
 
     wp_send_json_success( $tutti[ $provincia ] );
 }
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 4. TOOLS ADMIN (solo amministratori)
-// ═══════════════════════════════════════════════════════════════════════════
-
-add_action( 'admin_init', function (): void {
-
-    if ( ! current_user_can( 'manage_options' ) ) return;
-
-    // Reset cache comuni:  /wp-admin/?wpfpc_reset_cache=1
-    if ( isset( $_GET['wpfpc_reset_cache'] ) && ! isset( $_GET['wpfpc_debug'] ) ) {
-        delete_transient( WPFPC_COMUNI_CACHE_KEY );
-        delete_transient( 'wpfpc_github_release' );
-        wp_die( '✅ Cache svuotata. <a href="' . admin_url() . '">Torna alla dashboard</a>' );
-    }
-
-    // Debug comuni: /wp-admin/?wpfpc_debug=1
-    if ( isset( $_GET['wpfpc_debug'] ) ) {
-        if ( isset( $_GET['wpfpc_reset'] ) ) {
-            delete_transient( WPFPC_COMUNI_CACHE_KEY );
-        }
-        $tutti = wpfpc_get_tutti_comuni();
-        echo '<h2>Debug WPForms Province/Comuni — v' . WPFPC_VERSION . '</h2>';
-        if ( null === $tutti ) {
-            echo '<p>❌ Impossibile costruire il dizionario.</p>';
-        } else {
-            echo '<p>✅ Province trovate: ' . count( $tutti ) . '</p><pre>';
-            foreach ( $tutti as $sigla => $nomi ) {
-                echo esc_html( $sigla . ': ' . count( $nomi ) . ' comuni' ) . "\n";
-            }
-            echo '</pre>';
-        }
-        echo '<p><a href="' . admin_url( '?wpfpc_debug=1&wpfpc_reset=1' ) . '">Svuota cache e ri-testa</a></p>';
-        wp_die();
-    }
-} );
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 5. JAVASCRIPT CONDIZIONALE
+// 4. JAVASCRIPT — generato dinamicamente per tutti i form configurati
 // ═══════════════════════════════════════════════════════════════════════════
 
 add_action( 'wp_footer', 'wpfpc_inline_script' );
 
 function wpfpc_inline_script(): void {
 
-    $form_id  = WPFPC_FORM_ID;
-    $field_p  = WPFPC_FIELD_PROV;
-    $field_c  = WPFPC_FIELD_COM;
+    $configs = wpfpc_get_configs();
+    if ( empty( $configs ) ) return;
+
     $ajax_url = esc_url( admin_url( 'admin-ajax.php' ) );
     $nonce    = wp_create_nonce( 'wpfpc_nonce' );
+
+    // Costruisce l'array di configurazioni da passare al JS
+    $js_configs = array_map( fn( $c ) => [
+        'formId'   => (int) $c['form_id'],
+        'fieldProv' => (int) $c['field_prov'],
+        'fieldCom'  => (int) $c['field_com'],
+    ], $configs );
 
     ?>
     <script>
     (function ($) {
         'use strict';
 
-        var FORM_ID    = <?php echo (int) $form_id; ?>;
-        var FIELD_PROV = <?php echo (int) $field_p; ?>;
-        var FIELD_COM  = <?php echo (int) $field_c; ?>;
-        var AJAX_URL   = '<?php echo $ajax_url; ?>';
-        var NONCE      = '<?php echo $nonce; ?>';
-
-        var selProv      = '[name="wpforms[fields][' + FIELD_PROV + ']"]';
-        var selCom       = '[name="wpforms[fields][' + FIELD_COM  + ']"]';
-        var selComWrapper = '.wpforms-field[data-field-id="' + FIELD_COM + '"]';
+        var AJAX_URL = '<?php echo $ajax_url; ?>';
+        var NONCE    = '<?php echo $nonce; ?>';
+        var CONFIGS  = <?php echo wp_json_encode( array_values( $js_configs ) ); ?>;
 
         var CSS_DISABLED = 'opacity:0.5; pointer-events:none;';
         var CSS_ENABLED  = 'opacity:1;   pointer-events:auto;';
 
-        function $com() { return $(selCom); }
+        function initForm( cfg ) {
+            var selProv       = '[name="wpforms[fields][' + cfg.fieldProv + ']"]';
+            var selCom        = '[name="wpforms[fields][' + cfg.fieldCom  + ']"]';
+            var selComWrapper = '.wpforms-field[data-field-id="' + cfg.fieldCom + '"]';
 
-        function resetComuni(msg) {
-            $com()
-                .html('<option value="">' + msg + '</option>')
-                .attr('style', CSS_DISABLED);
-        }
+            function $com() { return $(selCom); }
 
-        function nascondiComuni() {
-            $(selComWrapper).hide();
-            resetComuni('— Seleziona prima una provincia —');
-        }
+            function resetComuni(msg) {
+                $com().html('<option value="">' + msg + '</option>').attr('style', CSS_DISABLED);
+            }
 
-        function mostraComuni() {
-            $(selComWrapper).show();
-        }
+            function nascondiComuni() {
+                $(selComWrapper).hide();
+                resetComuni('— Seleziona prima una provincia —');
+            }
 
-        function caricaComuni(provincia) {
-            resetComuni('⏳ Caricamento comuni...');
-            $.ajax({
-                url:      AJAX_URL,
-                method:   'GET',
-                dataType: 'json',
-                data: { action: 'wpfpc_get_comuni', nonce: NONCE, provincia: provincia },
-                success: function (response) {
-                    if (!response.success) {
-                        resetComuni('⚠️ ' + response.data);
-                        return;
+            function mostraComuni() {
+                $(selComWrapper).show();
+            }
+
+            function caricaComuni(provincia) {
+                resetComuni('⏳ Caricamento comuni...');
+                $.ajax({
+                    url:      AJAX_URL,
+                    method:   'GET',
+                    dataType: 'json',
+                    data: { action: 'wpfpc_get_comuni', nonce: NONCE, provincia: provincia },
+                    success: function (response) {
+                        if (!response.success) { resetComuni('⚠️ ' + response.data); return; }
+                        var $sel = $com();
+                        $sel.html('<option value="">— Seleziona comune —</option>');
+                        $.each(response.data, function (i, nome) {
+                            $sel.append($('<option>', { value: nome, text: nome }));
+                        });
+                        $sel.attr('style', CSS_ENABLED);
+                    },
+                    error: function (xhr) {
+                        resetComuni('⚠️ Errore (' + xhr.status + '), riprova');
                     }
-                    var $sel = $com();
-                    $sel.html('<option value="">— Seleziona comune —</option>');
-                    $.each(response.data, function (i, nome) {
-                        $sel.append($('<option>', { value: nome, text: nome }));
-                    });
-                    $sel.attr('style', CSS_ENABLED);
-                },
-                error: function (xhr) {
-                    resetComuni('⚠️ Errore (' + xhr.status + '), riprova');
-                }
-            });
-        }
+                });
+            }
 
-        $(document).ready(function () {
-            if (!$(selProv).length) return;
+            if (!$(selProv).length) return; // form non in questa pagina
 
             $(selProv)[0].selectedIndex = 0;
             nascondiComuni();
 
             $(document).on('change', selProv, function () {
                 var val = $(this).val();
-                if (val) {
-                    mostraComuni();
-                    caricaComuni(val);
-                } else {
-                    nascondiComuni();
-                }
+                if (val) { mostraComuni(); caricaComuni(val); }
+                else     { nascondiComuni(); }
+            });
+        }
+
+        $(document).ready(function () {
+            $.each(CONFIGS, function(i, cfg) {
+                initForm(cfg);
             });
         });
 
