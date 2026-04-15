@@ -3,7 +3,7 @@
  * Plugin Name:       WPForms – Province e Comuni Italiani
  * Plugin URI:        https://github.com/CreativeMetrics/wpforms-province-comuni
  * Description:       Popola automaticamente province e comuni italiani in WPForms con selezione condizionale via AJAX.
- * Version:           1.3.1
+ * Version:           1.3.2
  * Author:            CreativeMetrics
  * Author URI:        https://github.com/CreativeMetrics
  * License:           MIT
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WPFPC_VERSION',         '1.3.1' );
+define( 'WPFPC_VERSION',         '1.3.2' );
 define( 'WPFPC_GITHUB_USER',     'CreativeMetrics' );
 define( 'WPFPC_GITHUB_REPO',     'wpforms-province-comuni' );
 define( 'WPFPC_COMUNI_JSON_URL', 'https://raw.githubusercontent.com/matteocontrini/comuni-json/master/comuni.json' );
@@ -383,9 +383,23 @@ function wpfpc_inline_script(): void {
                         $(selCom).html(html).attr('style', CSS_ENA);
                         $(wrapCom).show();
 
-                        // Inizializza Select2 sul campo comuni
-                        // per aggiungere la ricerca integrata nel dropdown
+                        // Inizializza Select2 e copia gli stili esatti
+                        // dal <select> nativo (che Divi/WPForms ha già stilizzato)
                         if ($.fn.select2) {
+                            // Legge gli stili calcolati dal select nativo PRIMA di nasconderlo
+                            var nativeSel  = $(selCom)[0];
+                            var computed   = window.getComputedStyle(nativeSel);
+                            var borderR    = computed.borderRadius;
+                            var borderC    = computed.borderColor;
+                            var borderW    = computed.borderWidth;
+                            var borderS    = computed.borderStyle;
+                            var bgColor    = computed.backgroundColor;
+                            var padding    = computed.padding;
+                            var fontSize   = computed.fontSize;
+                            var fontFamily = computed.fontFamily;
+                            var color      = computed.color;
+                            var height     = computed.height;
+
                             $(selCom).select2({
                                 placeholder: '— Seleziona comune —',
                                 allowClear:  false,
@@ -395,6 +409,28 @@ function wpfpc_inline_script(): void {
                                     searching:    function() { return 'Ricerca in corso...'; },
                                     inputTooShort: function() { return 'Digita per cercare'; }
                                 }
+                            });
+
+                            // Applica gli stili copiati al contenitore Select2
+                            var $s2 = $(selCom).next('.select2-container');
+                            $s2.find('.select2-selection--single').css({
+                                'border-radius':    borderR,
+                                'border-color':     borderC,
+                                'border-width':     borderW,
+                                'border-style':     borderS,
+                                'background-color': bgColor,
+                                'font-size':        fontSize,
+                                'font-family':      fontFamily,
+                                'color':            color,
+                                'height':           height,
+                                'box-sizing':       'border-box',
+                            });
+                            $s2.find('.select2-selection__rendered').css({
+                                'font-size':   fontSize,
+                                'font-family': fontFamily,
+                                'color':       color,
+                                'padding':     padding,
+                                'line-height': height,
                             });
                         }
                     },
