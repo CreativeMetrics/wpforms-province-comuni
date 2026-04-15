@@ -86,10 +86,11 @@ class WPFPC_Admin {
             delete_transient( 'wpfpc_tutti_comuni_v3' );
             $msg = 'cache_comuni_ok';
         } elseif ( $action === 'reset_github' ) {
-            // Svuota sia la nostra cache che il transient interno di WordPress
+            // Svuota la nostra cache e il transient di WordPress
+            // NON chiamare wp_update_plugins() qui: innesca il check di tutti
+            // i plugin in contemporanea e può esaurire la memoria del server
             delete_transient( 'wpfpc_github_release' );
             delete_site_transient( 'update_plugins' );
-            wp_update_plugins(); // forza il ricalcolo immediato
             $msg = 'cache_github_ok';
         } else {
             $msg = 'unknown';
